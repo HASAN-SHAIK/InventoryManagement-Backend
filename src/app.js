@@ -12,7 +12,7 @@ const { authMiddleware } = require('./middleware/authMiddleware');
 app.use(cookieParser());
 
 app.use(cors({
-    origin: 'http://localhost:3000',
+    origin: 'https://inventorymanagement-frontend.onrender.com',
     credentials: true
 }));
 app.use(express.json());
