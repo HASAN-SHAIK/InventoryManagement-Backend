@@ -68,12 +68,12 @@ exports.login = async (req, res) => {
             expiresIn: process.env.TOKEN_EXPIRY,
         });
         res.cookie("token", token, {
-            httpOnly: false,
+            httpOnly: true,
             // secure: process.env.NODE_ENV === "production", // true only on HTTPS
-            secure: false,
+            secure: true,
             // sameSite: "Strict",
-            sameSite: 'lax',
-            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            sameSite: 'None',
+            maxAge: 24 * 60 * 60 * 1000, // 7 days
         });
         res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
     } catch (error) {
