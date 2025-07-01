@@ -3,7 +3,7 @@ const promclient = require("prom-client");
 
 const {apiLimiter, loginLimiter} = require('./middleware/rateLimiter')
 
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 5000; // Default to 5000 if PORT is not set
 
 const app = require('./app');
 
