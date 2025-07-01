@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+require('dotenv').config();
 const productRoutes = require('./routes/productRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
@@ -12,7 +13,7 @@ const { authMiddleware } = require('./middleware/authMiddleware');
 app.use(cookieParser());
 
 app.use(cors({
-    origin: 'https://inventorymanagement-frontend.onrender.com',
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000', // Use the environment variable or default to localhost
     credentials: true
 }));
 app.use(express.json());
