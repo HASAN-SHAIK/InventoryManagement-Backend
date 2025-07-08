@@ -12,18 +12,11 @@ const cookieParser = require('cookie-parser');
 const { authMiddleware } = require('./middleware/authMiddleware');
 app.use(cookieParser());
 
-const allowedOrigins = ['http://localhost:3001', 'https://inventorymanagement-frontend-qa.onrender.com'];
-
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true
+    origin: 'https://inventorymanagement-frontend-qa.onrender.com/', // Use the environment variable or default to localhost
+    credentials: true
 }));
-
+app.use(express.json());
 
 app.use('/api/products',authMiddleware, productRoutes);
 app.use('/api/orders',authMiddleware, orderRoutes);
