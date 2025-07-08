@@ -12,7 +12,7 @@ const cookieParser = require('cookie-parser');
 const { authMiddleware } = require('./middleware/authMiddleware');
 app.use(cookieParser());
 
-const allowedOrigins = ['http://localhost:3001', process.env.FRONTEND_URL];
+const allowedOrigins = ['http://localhost:3001', 'https://inventorymanagement-frontend-qa.onrender.com'];
 
 app.use(cors({
   origin: function (origin, callback) {
