@@ -13,7 +13,7 @@ const { authMiddleware } = require('./middleware/authMiddleware');
 app.use(cookieParser());
 
 app.use(cors({
-    origin: 'https://inventorymanagement-frontend-qa.onrender.com/', // Use the environment variable or default to localhost
+    origin: 'https://inventorymanagement-frontend-qa.onrender.com', // Use the environment variable or default to localhost
     credentials: true
 }));
 app.use(express.json());
