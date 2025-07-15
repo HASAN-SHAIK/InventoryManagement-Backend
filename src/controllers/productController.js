@@ -22,17 +22,61 @@ const getProducts = async (req, res) => {
 
 // ✅ Add new product
 const addProduct = async (req, res) => {
-    const { product_name, category, selling_price, stock_quantity, company, actual_price, time_for_delivery} = req.body;
-    try {
-        const result = await pool.query(
-            'INSERT INTO products (name, category, selling_price, stock_quantity, actual_price, company, time_for_delivery) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-            [product_name, category, selling_price, stock_quantity, actual_price, company, time_for_delivery]
-        );
-        res.status(201).json(result.rows[0]);
-    } catch (error) {
-        res.status(500).json({ error: 'Database error' });
+  const {
+    product_name,
+    category,
+    selling_price,
+    stock_quantity,
+    company,
+    actual_price,
+    time_for_delivery
+  } = req.body;
+
+  try {
+    // 1. Check if product already exists with same name and company
+    const existing = await pool.query(
+      'SELECT * FROM products WHERE name = $1 AND company = $2',
+      [product_name, company]
+    );
+
+    if (existing.rows.length > 0) {
+      // 2. Product exists: update stock and prices
+      const existingProduct = existing.rows[0];
+
+      const updated = await pool.query(
+        `UPDATE products
+         SET stock_quantity = stock_quantity + $1,
+             actual_price = $2,
+             selling_price = $3
+         WHERE id = $4
+         RETURNING *`,
+        [stock_quantity, actual_price, selling_price, existingProduct.id]
+      );
+
+      return res.status(200).json({
+        message: 'Product already exists. Stock and prices updated.',
+        product: updated.rows[0]
+      });
+    } else {
+      // 3. Product doesn't exist: insert new
+      const result = await pool.query(
+        `INSERT INTO products (name, category, selling_price, stock_quantity, actual_price, company, time_for_delivery)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [product_name, category, selling_price, stock_quantity, actual_price, company, time_for_delivery]
+      );
+
+      return res.status(201).json({
+        message: 'New product added.',
+        product: result.rows[0]
+      });
     }
+  } catch (error) {
+    console.error("Error adding/updating product:", error);
+    res.status(500).json({ error: 'Database error' });
+  }
 };
+
 
 // ✅ Update product
 const updateProduct = async (req, res) => {
