@@ -11,7 +11,14 @@ const app = express();
 const cookieParser = require('cookie-parser');
 const { authMiddleware } = require('./middleware/authMiddleware');
 app.use(cookieParser());
+app.use((err, req, res, next) => {
+  console.error("💥 Global Error:", err);
 
+  res.status(err.statusCode || 500).json({
+    success: false,
+    message: err.message || "Internal Server Error",
+  });
+});
 const allowedOrigins = [
   'https://inventorymanagement-frontend-qa.onrender.com',
   'https://inventorymanagement-frontend.onrender.com',
