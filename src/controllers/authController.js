@@ -65,15 +65,13 @@ exports.login = async (req, res) => {
 
         // Generate JWT Token
         const token = jwt.sign({ id: user.id, role: user.role, user_name: user.name }, process.env.JWT_SECRET, {
-            expiresIn: process.env.TOKEN_EXPIRY,
+            expiresIn: process.env.TOKEN_EXPIRY * 1000,
         });
         res.cookie("token", token, {
             httpOnly: true, // true for secure cookies
-            // secure: process.env.NODE_ENV === "production", // true only on HTTPS
             secure: true,
-            // sameSite: "Strict",
             sameSite: 'None',
-            maxAge: 1 * 60 * 60 * 1000, // 7 days
+            maxAge: process.env.TOKEN_EXPIRY *1000, 
         });
         res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
     } catch (error) {
@@ -92,17 +90,6 @@ exports.deleteUser = async (req, res) => {
         }
 
         const user = userResult.rows[0];
-
-        // Compare password
-        // const validPassword = await bcrypt.compare(password, user.password);
-        // if (!validPassword) {
-            // return res.status(401).json({ message: "Invalid email or password" });
-        // }
-
-        // Generate JWT Token
-        // const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, {
-        //     expiresIn: process.env.TOKEN_EXPIRY,
-        // });
         const deletedUserRes = await pool.query('delete from users where email = $1', [email]);
         return res.status(204).json({ message: "User Deleted" });
         

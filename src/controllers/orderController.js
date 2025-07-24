@@ -344,7 +344,7 @@ const createOrder = async (req, res) => {
 const getOrderById = async (req, res) => {
     try {
         const { id } = req.params;
-        const orderRes = await pool.query('SELECT o.*, u.name FROM orders o join users u on o.user_id = u.id WHERE o.id = $1', [id]);
+        const orderRes = await pool.query('SELECT o.*, u.name, t.transaction_type, t.payment_mode FROM orders o join users u on o.user_id = u.id join transactions t on t.order_id = o.id WHERE o.id = $1', [id]);
 
         if (orderRes.rowCount === 0) {
             return res.status(404).json({ error: "Order not found" });
@@ -377,7 +377,7 @@ const getAllOrders = async (req, res) => {
         const orders = await Promise.all(
             ordersRes.rows.map(async (order) => {
                 const itemsRes = await pool.query(
-                    'SELECT p.id as product_id, p.name, oi.quantity, oi.selling_price FROM order_items oi join products p on p.id = oi.product_id WHERE order_id = $1',
+                    'SELECT p.id as product_id, p.name as product_name, oi.quantity, oi.selling_price FROM order_items oi join products p on p.id = oi.product_id WHERE order_id = $1',
                     [order.id]
                 );
                 return { ...order, items: itemsRes.rows };
@@ -452,7 +452,7 @@ const deleteOrder = async (req, res) => {
 
   const updateOrder = async (req, res) => {
     const orderId = parseInt(req.params.id);
-    const { payment_mode, products } = req.body;
+    const { payment_method, products } = req.body;
   
     const client = await pool.connect();
   
@@ -516,7 +516,7 @@ const deleteOrder = async (req, res) => {
         `UPDATE transactions
          SET total_price = $1, profit = $2, payment_mode = $3
          WHERE order_id = $4`,
-        [newTotalPrice, newProfit, payment_mode, orderId]
+        [newTotalPrice, newProfit, payment_method, orderId]
       );
   
       // 6. Update orders table
