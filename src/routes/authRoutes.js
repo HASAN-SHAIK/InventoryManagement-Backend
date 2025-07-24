@@ -10,6 +10,6 @@ router.post('/register',register);
 router.post('/login',login);
 router.get('/login', getLogin);
 router.delete('/delete',isAdmin, deleteUser);
-router.post('/logout', authMiddleware,logout);
+router.post('/logout',logout);
 
 module.exports = router;    
