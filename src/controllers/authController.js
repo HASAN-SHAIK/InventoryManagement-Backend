@@ -48,7 +48,6 @@ exports.getLogin = async (req, res) => {
 exports.login = async (req, res) => {
     try {
         const { email, password } = req.body;
-
         // Find user
         const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
         if (userResult.rows.length === 0) {

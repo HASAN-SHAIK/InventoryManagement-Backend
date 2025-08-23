@@ -1,19 +1,38 @@
-require('dotenv').config({path: '../'}); // ✅ Load environment variables
+require("dotenv").config();
 const { Pool } = require('pg');
 
+const poolConfig = {
+    user: process.env.DB_USER,
+    host: process.env.DB_HOST,
+    database: process.env.DB_NAME,
+    password: process.env.DB_PASSWORD,
+    port: process.env.DB_PORT,
+    ssl: false,
+};
 
-console.log("🔄 Initializing PostgreSQL Connection...");
-console.log("🔍 DATABASE_URL:", 'xxxxxxx');//process.env.DATABASE_URL); // Debug log
+const MAX_RETRIES = 5;
+const RETRY_DELAY = 2000; // ms
+const pool = new Pool(poolConfig);
 
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL, // ✅ Use env variable
-    ssl: {
-        rejectUnauthorized: false, // Required for many managed Postgres services like Neon
+async function connectWithRetry(retries = MAX_RETRIES, delay = RETRY_DELAY) {
+    console.log('DB_PASSWORD type:', typeof process.env.DB_PASSWORD);
+    for (let i = 0; i < retries; i++) {
+        try {
+            await pool.query('SELECT 1'); // Simple test query
+            console.log('✅ PostgreSQL Pool Connected!');
+            return pool;
+        } catch (err) {
+            console.error(`❌ Pool connection attempt ${i + 1} failed:`, err.message);
+            if (i < retries - 1) {
+                await new Promise(res => setTimeout(res, delay));
+                console.log('Retrying...');
+            } else {
+                console.error('❌ All pool connection attempts failed.');
+                throw err;
+            }
+        }
     }
-});
+}
 
-// pool.connect()
-//     .then(() => console.log("✅ PostgreSQL Connected!"))
-//     .catch((err) => console.error("❌ Database Connection Failed:", err));
-
+connectWithRetry();
 module.exports = pool;
