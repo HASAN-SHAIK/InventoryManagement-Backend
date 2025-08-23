@@ -81,15 +81,19 @@ const processOrderItems = async (client, orderId, items) => {
     return totalPrice;
 };
 
-const saleOrder = async(req, res) => {
+const saleOrder = async (req, res) => {
     const client = await pool.connect();
     try {
         await client.query("BEGIN");
-        const { user_id, products, payment_method } = req.body;
-        if(!user_id || products.length == 0)
-            return res.status(400).json({error: "Should have userid, products"})
+
+        const { user_id, products, payment_method, coupon_code } = req.body;
+        if (!user_id || products.length == 0)
+            return res.status(400).json({ error: "Should have userid, products" });
+
         let total_price = 0;
         let total_profit = 0;
+
+        // Step 1: Calculate total and update stock
         for (const product of products) {
             const { rows } = await client.query(
                 "SELECT selling_price, actual_price, stock_quantity FROM products WHERE id = $1 FOR UPDATE",
@@ -98,50 +102,95 @@ const saleOrder = async(req, res) => {
             if (rows.length === 0 || rows[0].stock_quantity < product.quantity) {
                 throw new Error("Product not available or insufficient stock");
             }
-            const sellingPrice = rows[0].selling_price;
-            const actualPrice = rows[0].actual_price;
-            const profit = (sellingPrice - actualPrice) * product.quantity;
-            total_price += sellingPrice * product.quantity;
+            const { selling_price, actual_price } = rows[0];
+            const profit = (selling_price - actual_price) * product.quantity;
+            total_price += selling_price * product.quantity;
             total_profit += profit;
+
             await client.query(
                 "UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2",
                 [product.quantity, product.product_id]
             );
-
         }
+
+        // Step 2: Apply coupon discount (if any)
+        let discountAmount = 0;
+        if (coupon_code) {
+            const { rows: couponRows } = await client.query(
+                "SELECT * FROM coupons WHERE code = $1 AND isactive = true",
+                [coupon_code]
+            );
+            if (couponRows.length === 0) {
+                throw new Error("Invalid or expired coupon code");
+            }
+            const coupon = couponRows[0];
+            if (coupon.discount_type === 'fixed') {
+                discountAmount = coupon.discount_value;
+            } else if (coupon.discount_type === 'percentage') {
+                discountAmount = (total_price * coupon.discount_value) / 100;
+            }
+
+            // Optional: deactivate coupon if one-time use
+            // if (coupon.used_once) {
+            //     await client.query("UPDATE coupons SET is_active = false WHERE id = $1", [coupon.id]);
+            // }
+
+            total_price = Math.max(total_price - discountAmount, 0); // Prevent negative price
+        }
+
+        // Step 3: Create order
         const orderResult = await client.query(
             "INSERT INTO orders (user_id, total_price, order_status) VALUES ($1, $2, 'pending') RETURNING id",
             [user_id, total_price]
         );
         const order_id = orderResult.rows[0].id;
+
+        // Step 4: Add order_items
         for (const item of products) {
-        const productResult = await client.query("SELECT * from PRODUCTS where id = $1", [item.product_id]);
-        const product = productResult.rows[0];
-        await client.query(
-            `INSERT INTO order_items (order_id, product_id, quantity, selling_price) VALUES($1, $2, $3, $4)`,
-            [order_id, product.id, item.quantity, product.selling_price]
-        );
+            const productResult = await client.query("SELECT * FROM products WHERE id = $1", [item.product_id]);
+            const product = productResult.rows[0];
+            await client.query(
+                "INSERT INTO order_items (order_id, product_id, quantity, selling_price) VALUES($1, $2, $3, $4)",
+                [order_id, product.id, item.quantity, product.selling_price]
+            );
         }
-        const orderItemsRes = await client.query(`select product_id, quantity from order_items where order_id = $1`, [order_id])
+
+        // Step 5: Recalculate profit
+        const orderItemsRes = await client.query(
+            "SELECT product_id, quantity FROM order_items WHERE order_id = $1",
+            [order_id]
+        );
         let profit = 0;
-        for(const product of orderItemsRes.rows){
-            const profitRes = await client.query(`select selling_price-actual_price as profit from products where id = $1`,[product.product_id]);
-            profit += profitRes.rows[0].profit*product.quantity;
+        for (const product of orderItemsRes.rows) {
+            const profitRes = await client.query(
+                "SELECT selling_price - actual_price AS profit FROM products WHERE id = $1",
+                [product.product_id]
+            );
+            profit += profitRes.rows[0].profit * product.quantity;
         }
-        // Create a transaction entry
+
+        // Step 6: Insert into transactions
         await client.query(
-            "INSERT INTO transactions (order_id, total_price, transaction_type, profit, payment_mode) VALUES ($1, (SELECT total_price FROM orders WHERE id = $1), $2, $3, $4);",
-            [order_id, 'sale', profit, payment_method]
+            "INSERT INTO transactions (order_id, total_price, transaction_type, profit, payment_mode, coupon_code, discount) VALUES ($1, $2, $3, $4, $5,$6,$7)",
+            [order_id, total_price, 'sale', profit, payment_method, coupon_code || null, discountAmount]
         );
+
         await client.query("COMMIT");
-        res.status(201).json({ message: "Order created successfully", order_id, payment_method: payment_method });
+        res.status(201).json({
+            message: "Order created successfully",
+            order_id,
+            total_price,
+            discount: discountAmount,
+            payment_method,
+        });
     } catch (error) {
         await client.query("ROLLBACK");
         res.status(400).json({ error: error.message });
     } finally {
         client.release();
-    } 
-}
+    }
+};
+
 
 const createPurchaseOrder = async (req, res) => {
     const client = await pool.connect();
@@ -367,7 +416,7 @@ const getAllOrders = async (req, res) => {
         let {sort} = req.query;
         if(!sort)
             sort = 'order_date';
-        const ordersRes = await pool.query(`select o.*, u.name as username,t.payment_mode as payment, t.transaction_type as type from orders o join users u on o.user_id = u.id join transactions t on t.order_id = o.id ORDER BY o.${sort} DESC`);
+        const ordersRes = await pool.query(`select o.*, u.name as username,t.payment_mode as payment, t.transaction_type as type, t.coupon_code as couponCode from orders o join users u on o.user_id = u.id join transactions t on t.order_id = o.id ORDER BY o.${sort} DESC`);
 
         if (ordersRes.rowCount === 0) {
             return res.status(404).json({ error: "No orders found" });
@@ -397,149 +446,185 @@ const getAllOrders = async (req, res) => {
 
 // 🟢 Delete Order
 const deleteOrder = async (req, res) => {
-    const  order_id  = req.params.id;
-
+    const order_id = req.params.id;
     const client = await pool.connect();
+
     try {
-      await client.query('BEGIN');
-  
-      // Get the transaction type
-      const { rows: txRows } = await client.query(
-        'SELECT transaction_type FROM transactions WHERE order_id = $1',
-        [order_id]
-      );
-  
-      if (txRows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ message: 'Order not found' });
-      }
-  
-      const transactionType = txRows[0].transaction_type;
-  
-      if (transactionType === 'sale') {
-        // Fetch order_items for this order
-        const { rows: orderItems } = await client.query(
-          'SELECT product_id, quantity FROM order_items WHERE order_id = $1',
-          [order_id]
+        await client.query('BEGIN');
+
+        // Get order details including transaction_type and coupon_id
+        const { rows: orderRows } = await client.query(
+            'SELECT transaction_type, coupon_code FROM orders JOIN transactions ON orders.id = transactions.order_id WHERE orders.id = $1',
+            [order_id]
         );
-  
-        // Restore product quantities
-        for (const item of orderItems) {
-          await client.query(
-            'UPDATE products SET stock_quantity = stock_quantity + $1 WHERE id = $2',
-            [item.quantity, item.product_id]
-          );
+
+        if (orderRows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ message: 'Order not found' });
         }
-      }
-  
-      // Delete from order_items
-      await client.query('DELETE FROM order_items WHERE order_id = $1', [order_id]);
-  
-      // Delete the order/transaction
-      await client.query('DELETE FROM orders WHERE id = $1', [order_id]);
-  
-      await client.query('COMMIT');
-      res.status(204).json({ message: 'Order deleted successfully' });
-  
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Error deleting order:', error);
-      res.status(500).json({ message: 'Internal server error' });
-    } finally {
-      client.release();
-    }
-  };
 
-  const updateOrder = async (req, res) => {
-    const orderId = parseInt(req.params.id);
-    const { payment_method, products } = req.body;
-  
-    const client = await pool.connect();
-  
-    try {
-      await client.query('BEGIN');
-  
-      // 1. Get the old order items
-      const { rows: oldOrderItems } = await client.query(
-        `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
-        [orderId]
-      );
-  
-      // 2. Restore stock based on old order items
-      for (const item of oldOrderItems) {
-        await client.query(
-          `UPDATE products SET stock_quantity = stock_quantity + $1 WHERE id = $2`,
-          [item.quantity, item.product_id]
-        );
-      }
-  
-      // 3. Delete old order items
-      await client.query(
-        `DELETE FROM order_items WHERE order_id = $1`,
-        [orderId]
-      );
-  
-      let newTotalPrice = 0;
-      let newProfit = 0;
-  
-      // 4. Insert new order items and update stock
-      for (const product of products) {
-        const { product_id, quantity, selling_price } = product;
-  
-        // Insert into order_items
-        await client.query(
-          `INSERT INTO order_items (order_id, product_id, quantity, selling_price)
-           VALUES ($1, $2, $3, $4)`,
-          [orderId, product_id, quantity, selling_price]
-        );
-  
-        // Decrease stock quantity
-        await client.query(
-          `UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2`,
-          [quantity, product_id]
-        );
-  
-        // Fetch actual_price for profit calculation
-        const { rows } = await client.query(
-          `SELECT actual_price FROM products WHERE id = $1`,
-          [product_id]
-        );
-  
-        const actualPrice = rows[0].actual_price;
-  
-        newTotalPrice += selling_price * quantity;
-        newProfit += (selling_price - actualPrice) * quantity;
-      }
-  
-      // 5. Update transactions table
-      await client.query(
-        `UPDATE transactions
-         SET total_price = $1, profit = $2, payment_mode = $3
-         WHERE order_id = $4`,
-        [newTotalPrice, newProfit, payment_method, orderId]
-      );
-  
-      // 6. Update orders table
-      await client.query(
-        `UPDATE orders
-         SET total_price = $1
-         WHERE id = $2`,
-        [newTotalPrice, orderId]
-      );
-  
-      await client.query('COMMIT');
-      res.status(200).json({ message: 'Order updated successfully' });
+        const { transaction_type, coupon_code } = orderRows[0];
+
+        if (transaction_type === 'sale') {
+            // Restore product quantities
+            const { rows: orderItems } = await client.query(
+                'SELECT product_id, quantity FROM order_items WHERE order_id = $1',
+                [order_id]
+            );
+
+            for (const item of orderItems) {
+                await client.query(
+                    'UPDATE products SET stock_quantity = stock_quantity + $1 WHERE id = $2',
+                    [item.quantity, item.product_id]
+                );
+            }
+        }
+
+        // OPTIONAL: If you track coupon usage, restore it (e.g., usage_count)
+        // if (coupon_code) {
+        //     await client.query(
+        //         'UPDATE coupons SET max_uses = max_uses - 1 WHERE id = $1 AND max_uses > 0',
+        //         [coupon_code]
+        //     );
+        // }
+
+        // Delete from order_items
+        await client.query('DELETE FROM order_items WHERE order_id = $1', [order_id]);
+
+        // Delete from transactions
+        await client.query('DELETE FROM transactions WHERE order_id = $1', [order_id]);
+
+        // Delete the order
+        await client.query('DELETE FROM orders WHERE id = $1', [order_id]);
+
+        await client.query('COMMIT');
+        res.status(204).json({ message: 'Order deleted successfully' });
+
     } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Error updating order:', error.message);
-      if(error.message.includes('products_stock_quantity_check'))
-        return res.status(500).json({error: "Some Products Quantity is out of Stock Please Check Quanity"});
-      else
-      res.status(500).json({ error: 'Failed to update order' });
+        await client.query('ROLLBACK');
+        console.error('Error deleting order:', error);
+        res.status(500).json({ message: 'Internal server error' });
     } finally {
-      client.release();
+        client.release();
     }
-  };
+};
+
+
+const updateOrder = async (req, res) => {
+  const orderId = parseInt(req.params.id);
+  const { payment_method, products, coupon_code } = req.body;
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // 1. Get old order items
+    const { rows: oldOrderItems } = await client.query(
+      `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
+      [orderId]
+    );
+
+    // 2. Restore stock
+    for (const item of oldOrderItems) {
+      await client.query(
+        `UPDATE products SET stock_quantity = stock_quantity + $1 WHERE id = $2`,
+        [item.quantity, item.product_id]
+      );
+    }
+
+    // 3. Delete old order items
+    await client.query(`DELETE FROM order_items WHERE order_id = $1`, [orderId]);
+
+    let newTotalPrice = 0;
+    let newProfit = 0;
+
+    // 4. Insert new items and update stock
+    for (const product of products) {
+      const { product_id, quantity, selling_price } = product;
+
+      await client.query(
+        `INSERT INTO order_items (order_id, product_id, quantity, selling_price)
+         VALUES ($1, $2, $3, $4)`,
+        [orderId, product_id, quantity, selling_price]
+      );
+
+      await client.query(
+        `UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2`,
+        [quantity, product_id]
+      );
+
+      const { rows } = await client.query(
+        `SELECT actual_price FROM products WHERE id = $1`,
+        [product_id]
+      );
+
+      const actualPrice = rows[0].actual_price;
+
+      newTotalPrice += selling_price * quantity;
+      newProfit += (selling_price - actualPrice) * quantity;
+    }
+
+    // 5. Apply coupon if provided
+    let discountAmount = 0;
+    if (coupon_code) {
+      const { rows: couponRows } = await client.query(
+        `SELECT * FROM coupons WHERE code = $1 AND isActive = TRUE`,
+        [coupon_code]
+      );
+
+      if (couponRows.length === 0) {
+        throw new Error('Invalid or inactive coupon');
+      }
+
+      const coupon = couponRows[0];
+
+      if (coupon.discount_type === 'flat') {
+        discountAmount = parseFloat(coupon.discount_value);
+      } else if (coupon.discount_type === 'percent') {
+        discountAmount = (newTotalPrice * parseFloat(coupon.discount_value)) / 100;
+      }
+
+      newTotalPrice -= discountAmount;
+      if (newTotalPrice < 0) newTotalPrice = 0;
+    }
+
+    // 6. Update transaction
+    await client.query(
+      `UPDATE transactions
+       SET total_price = $1, profit = $2, payment_mode = $3, discount = $4, coupon_code = $5
+       WHERE order_id = $6`,
+      [newTotalPrice, newProfit, payment_method, discountAmount, coupon_code || null, orderId]
+    );
+
+    // 7. Update order
+    await client.query(
+      `UPDATE orders
+       SET total_price = $1
+       WHERE id = $2`,
+      [newTotalPrice, orderId]
+    );
+    
+
+    await client.query('COMMIT');
+    res.status(200).json({ message: 'Order updated successfully' });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error updating order:', error.message);
+
+    if (error.message.includes('products_stock_quantity_check')) {
+      return res.status(500).json({ error: 'Some product quantities are out of stock. Please check quantities.' });
+    } else if (error.message === 'Invalid or inactive coupon') {
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.status(500).json({ error: 'Failed to update order' });
+  } finally {
+    client.release();
+  }
+};
+
   
 
 const markOrderAsPaid = async (req, res) => {
@@ -574,4 +659,66 @@ const markOrderAsPaid = async (req, res) => {
     }
  }
 
- module.exports = {markOrderAsPaid, createOrder, getAllOrders, getOrderById, updateOrder, deleteOrder, getProfitByOrderId, getCategories}
+const applyCoupon = async (req, res) => {
+  const { coupon_code, orderTotal, order_id } = req.body;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Check if the coupon is valid
+    const couponResult = await client.query(
+      "SELECT * FROM coupons WHERE code = $1 AND isactive = true",
+      [coupon_code]
+    );
+
+    if (!couponResult.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Invalid or expired coupon." });
+    }
+
+    const coupon = couponResult.rows[0];
+    const { discount_type, discount_value } = coupon;
+
+     const transactionResult = await client.query(
+      "SELECT discount FROM transactions WHERE order_id = $1",
+      [order_id]
+    );
+    orderTotal = parseFloat(orderTotal) + parseFloat(transactionResult.rows[0].discount || 0);
+    // Remove previous coupon (if any) by setting it to NULL
+    await client.query(
+      "UPDATE transactions SET coupon_code = NULL WHERE order_id = $1",
+      [order_id]
+    );
+
+    // Apply new coupon
+    await client.query(
+      "UPDATE transactions SET coupon_code = $1 WHERE order_id = $2",
+      [coupon_code, order_id]
+    );
+
+    // Calculate discount
+    let discount = 0;
+    if (discount_type === "percentage") {
+      discount = (orderTotal * discount_value) / 100;
+    } else {
+      discount = discount_value;
+    }
+
+    const newTotal = orderTotal - discount;
+
+    await client.query("COMMIT");
+
+    return res.json({ success: true, discount, newTotal });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Coupon apply error:", err);
+    return res.status(500).json({ error: "Something went wrong." });
+  } finally {
+    client.release();
+  }
+};
+
+
+
+ module.exports = {markOrderAsPaid,applyCoupon, createOrder, getAllOrders, getOrderById, updateOrder, deleteOrder, getProfitByOrderId, getCategories}
