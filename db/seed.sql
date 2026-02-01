@@ -28,21 +28,21 @@ insert into order_items (order_id, product_id, quantity, selling_price) VALUES(1
 insert into order_items (order_id, product_id, quantity, selling_price) VALUES(2, 3, 1, 5000.00);
 
 -- FLAT DISCOUNT COUPONS
-INSERT INTO coupons (code, discount_type, discount_value, max_uses, expires_at)
+INSERT INTO coupons (code, discount_type, discount_value, isActive, expires_at)
 VALUES 
-('FLAT100', 'flat', 100, 100, NOW() + INTERVAL '1 year'),
-('FLAT200', 'flat', 200, 100, NOW() + INTERVAL '1 year'),
-('FLAT300', 'flat', 300, 100, NOW() + INTERVAL '1 year'),
-('FLAT400', 'flat', 400, 100, NOW() + INTERVAL '1 year'),
-('FLAT500', 'flat', 500, 100, NOW() + INTERVAL '1 year');
+('FLAT100', 'flat', 100, true, NOW() + INTERVAL '1 year'),
+('FLAT200', 'flat', 200, true, NOW() + INTERVAL '1 year'),
+('FLAT300', 'flat', 300, true, NOW() + INTERVAL '1 year'),
+('FLAT400', 'flat', 400, true, NOW() + INTERVAL '1 year'),
+('FLAT500', 'flat', 500, true, NOW() + INTERVAL '1 year');
 
 -- PERCENTAGE DISCOUNT COUPONS
-INSERT INTO coupons (code, discount_type, discount_value, max_uses, expires_at)
+INSERT INTO coupons (code, discount_type, discount_value, isActive, expires_at)
 VALUES 
-('PERC5', 'percentage', 5, 100, NOW() + INTERVAL '1 year'),
-('PERC10', 'percentage', 10, 100, NOW() + INTERVAL '1 year'),
-('PERC15', 'percentage', 15, 100, NOW() + INTERVAL '1 year'),
-('PERC20', 'percentage', 20, 100, NOW() + INTERVAL '1 year');
+('PERC5', 'percentage', 5, true, NOW() + INTERVAL '1 year'),
+('PERC10', 'percentage', 10, true, NOW() + INTERVAL '1 year'),
+('PERC15', 'percentage', 15, true, NOW() + INTERVAL '1 year'),
+('PERC20', 'percentage', 20, true, NOW() + INTERVAL '1 year');
 
 
 -- //Command to run psql -U postgres -d inventory_db -f ./seed.sql
