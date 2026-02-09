@@ -7,6 +7,26 @@ CREATE TABLE users (
     role VARCHAR(50) CHECK (role IN ('admin', 'staff')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE shop_details (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL UNIQUE,    
+    shop_name VARCHAR(255) NOT NULL,
+    owner_name VARCHAR(255),    
+    mobile_number VARCHAR(15) NOT NULL,
+    alternate_mobile VARCHAR(15),
+    gst_number VARCHAR(20),
+    pan_number VARCHAR(20),
+    address_line TEXT NOT NULL,
+    city VARCHAR(100),
+    state VARCHAR(100),
+    pincode VARCHAR(10),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_shop_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON DELETE CASCADE
+);
 
 -- Products Table (Soft Delete)
 CREATE TABLE products (
