@@ -27,9 +27,12 @@ CREATE TABLE orders (
     id SERIAL PRIMARY KEY,
     user_id INT REFERENCES users(id) ON DELETE SET NULL,
     total_price DECIMAL(10,2) NOT NULL CHECK (total_price >= 0),
+    client_order_id UUID,
     order_status VARCHAR(20) DEFAULT 'pending' CHECK (order_status IN ('pending', 'completed', 'canceled')),
     order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+
 
 -- Order Items Table (Mapping Products to Orders)
 CREATE TABLE order_items (
@@ -74,6 +77,8 @@ CREATE INDEX idx_products_category ON products(category);
 -- Orders Indexes
 CREATE INDEX idx_orders_user_id ON orders(user_id);
 CREATE INDEX idx_orders_status ON orders(order_status);
+CREATE UNIQUE INDEX IF NOT EXISTS orders_client_order_id_uniq
+ON orders (client_order_id);
 
 -- Order Items Indexes (New Table)
 CREATE INDEX idx_order_items_order_id ON order_items(order_id);
